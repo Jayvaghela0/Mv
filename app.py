@@ -7,7 +7,7 @@ CORS(app)  # Enable CORS for frontend integration
 
 # Telegram API Credentials
 api_id = 17869110  # Replace with your Telegram API ID
-api_hash = "YOUR_API_HASH"  # Replace with your API Hash
+api_hash = "0fcddcab5bc982b57af23a9944bafc9c"  # Replace with your API Hash
 channel_username = "YourMovieChannel"  # Replace with Telegram channel username or ID
 
 client = TelegramClient("session_name", api_id, api_hash)
