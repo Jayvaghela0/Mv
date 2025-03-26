@@ -6,7 +6,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend integration
 
 # Telegram API Credentials
-api_id = YOUR_API_ID  # Replace with your Telegram API ID
+api_id = 17869110  # Replace with your Telegram API ID
 api_hash = "YOUR_API_HASH"  # Replace with your API Hash
 channel_username = "YourMovieChannel"  # Replace with Telegram channel username or ID
 
