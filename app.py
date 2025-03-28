@@ -34,7 +34,7 @@ def get_movie_download_link(movie_name):
 def extract_download_link(movie_page_url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-        "Referer": "https://hdhub4u.tube/",
+        "Referer": "https://hdhub4u.soccer/",
     }
     response = scraper.get(movie_page_url, headers=headers)
     if response.status_code != 200:
