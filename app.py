@@ -8,7 +8,7 @@ CORS(app)  # Enable CORS for all domains
 
 # Function to search movies on HDHub4u
 def search_movie(movie_name):
-    search_url = f"https://hdhub4u.tube/?s={movie_name.replace(' ', '+')}"
+    search_url = f"https://hdhub4u.soccer/?s={movie_name.replace(' ', '+')}"
     headers = {
         "User-Agent": "Mozilla/5.0"
     }
