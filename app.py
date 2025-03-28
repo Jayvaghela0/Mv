@@ -1,81 +1,68 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from flask_cors import CORS
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all domains
+CORS(app)
 
-# Function to search movies on HDHub4u
-def search_movie(movie_name):
-    search_url = f"https://hdhub4u.soccer/?s={movie_name.replace(' ', '+')}"
+# Cloudflare Bypass Scraper
+scraper = cloudscraper.create_scraper()
+
+# Movie Search Function
+def get_movie_download_link(movie_name):
+    search_url = f"https://hdhub4u.tube/?s={movie_name.replace(' ', '+')}"
     headers = {
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        "Referer": "https://hdhub4u.tube/",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
-    response = requests.get(search_url, headers=headers)
+    response = scraper.get(search_url, headers=headers)
     if response.status_code != 200:
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
-    movie_links = []
+    first_result = soup.find("div", class_="post")
+    if not first_result:
+        return None
 
-    for post in soup.find_all("div", class_="result-item"):
-        link = post.find("a")["href"]
-        title = post.find("h2").text.strip()
-        movie_links.append({"title": title, "link": link})
+    movie_page_url = first_result.find("a")["href"]
+    return extract_download_link(movie_page_url)
 
-    return movie_links
-
-# Function to get direct download link
-def get_direct_download(movie_url):
+# Extract Direct Download Link
+def extract_download_link(movie_page_url):
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://hdhub4u.tube/"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        "Referer": "https://hdhub4u.tube/",
     }
-
-    response = requests.get(movie_url, headers=headers)
+    response = scraper.get(movie_page_url, headers=headers)
     if response.status_code != 200:
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
-    download_link = None
+    download_links = [a["href"] for a in soup.find_all("a") if "download" in a.get("href", "")]
+    return download_links[0] if download_links else None
 
-    for link in soup.find_all("a"):
-        href = link.get("href")
-        if "download" in href:
-            download_link = href
-            break
-
-    return download_link
-
-# API to Search Movies
 @app.route('/search', methods=['GET'])
-def search():
+def search_movie():
     movie_name = request.args.get('name')
     if not movie_name:
         return jsonify({"error": "Movie name required"}), 400
 
-    movie_results = search_movie(movie_name)
-    
-    if movie_results:
-        return jsonify({"movies": movie_results})
-    else:
-        return jsonify({"error": "No movies found"}), 404
-
-# API to Get Direct Download Link
-@app.route('/get_download', methods=['GET'])
-def get_download():
-    movie_url = request.args.get('url')
-    if not movie_url:
-        return jsonify({"error": "Movie URL required"}), 400
-
-    direct_link = get_direct_download(movie_url)
-    
+    direct_link = get_movie_download_link(movie_name)
     if direct_link:
         return jsonify({"direct_download_link": direct_link})
     else:
-        return jsonify({"error": "Failed to fetch download link"}), 500
+        return jsonify({"error": "No movie found"}), 404
+
+@app.route('/download', methods=['GET'])
+def auto_download():
+    movie_url = request.args.get('url')
+    if not movie_url:
+        return jsonify({"error": "Movie download URL required"}), 400
+
+    return redirect(movie_url, code=302)
 
 if __name__ == '__main__':
     app.run(debug=True)
