@@ -2,7 +2,8 @@ flask
 flask-cors
 requests
 beautifulsoup4
-gunicorn
 cloudscraper
+gunicorn
+
 
 
