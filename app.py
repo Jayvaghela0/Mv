@@ -11,7 +11,7 @@ scraper = cloudscraper.create_scraper()
 
 # Movie Search Function
 def get_movie_download_link(movie_name):
-    search_url = f"https://hdhub4u.tube/?s={movie_name.replace(' ', '+')}"
+    search_url = f"https://hdhub4u.soccer/?s={movie_name.replace(' ', '+')}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
         "Referer": "https://hdhub4u.tube/",
