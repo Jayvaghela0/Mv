@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app)
 
 scraper = cloudscraper.create_scraper()
-BASE_URL = "https://vegamovies.wtf/?s="
+BASE_URL = "https://vegamovies.cr/?s="
 
 # Fetch movie search results
 def search_movie(movie_name):
