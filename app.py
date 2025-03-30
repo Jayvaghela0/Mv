@@ -10,7 +10,8 @@ CORS(app)
 scraper = cloudscraper.create_scraper()
 BASE_URL = "https://vegamovies.cr/?s="
 
-# Fetch movie search results
+# Function to search movie
+
 def search_movie(movie_name):
     search_url = f"{BASE_URL}{movie_name.replace(' ', '+')}"
     response = scraper.get(search_url)
@@ -22,24 +23,9 @@ def search_movie(movie_name):
     for post in soup.find_all("div", class_="result-item"):  # Update class accordingly
         title = post.find("h2").text.strip()
         link = post.find("a")["href"]
-        img = post.find("img")["src"]
-        results.append({"title": title, "link": link, "img": img})
+        results.append({"title": title, "link": link})
     
     return results
-
-# Extract direct download links
-def get_download_links(movie_page_url):
-    response = scraper.get(movie_page_url)
-    if response.status_code != 200:
-        return []
-    
-    soup = BeautifulSoup(response.text, "html.parser")
-    links = []
-    for a in soup.find_all("a"):
-        href = a.get("href", "")
-        if "download" in href:
-            links.append(href)
-    return links
 
 @app.route('/search', methods=['GET'])
 def search():
@@ -54,8 +40,6 @@ def search():
     best_match = process.extractOne(movie_name, [r["title"] for r in results])
     if best_match and best_match[1] > 70:
         selected_movie = next(r for r in results if r["title"] == best_match[0])
-        download_links = get_download_links(selected_movie["link"])
-        selected_movie["download_links"] = download_links
         return jsonify(selected_movie)
     else:
         return jsonify({"error": "No exact match found, showing alternatives", "suggestions": results}), 200
