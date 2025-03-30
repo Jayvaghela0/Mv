@@ -7,3 +7,4 @@ basicsr
 realesrgan  
 requests  
 gunicorn
+flask-cors
