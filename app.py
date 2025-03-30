@@ -1,51 +1,68 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cloudscraper
+import requests
 from bs4 import BeautifulSoup
-from fuzzywuzzy import process
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for all routes
 
-scraper = cloudscraper.create_scraper()
-BASE_URL = "https://www.mp4moviez.family//?s="
+BASE_URL = "https://www.mp4moviez.family"
 
-@app.route('/')
-def home():
-    return "Welcome to NV"
-    
-# Fetch movie search results
+# Function to search movie and get its page URL
 def search_movie(movie_name):
-    search_url = f"{BASE_URL}{movie_name.replace(' ', '+')}"
-    response = scraper.get(search_url)
+    search_url = f"{BASE_URL}/search/{movie_name.replace(' ', '+')}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(search_url, headers=headers)
     if response.status_code != 200:
-        return []
+        return None
     
     soup = BeautifulSoup(response.text, "html.parser")
-    results = []
-    for post in soup.find_all("div", class_="result-item"):  # Update class accordingly
-        title = post.find("h2").text.strip()
-        link = post.find("a")["href"]
-        results.append({"title": title, "link": link})
+    movie_links = []
     
-    return results
+    for link in soup.find_all("a", href=True):
+        if "/movie/" in link["href"]:
+            movie_links.append(BASE_URL + link["href"])
+    
+    return movie_links[0] if movie_links else None
 
-@app.route('/search', methods=['GET'])
-def search():
+# Function to get direct download links and image
+def get_download_links(movie_page_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(movie_page_url, headers=headers)
+    if response.status_code != 200:
+        return None
+    
+    soup = BeautifulSoup(response.text, "html.parser")
+    download_links = []
+    image_url = ""
+    
+    # Get movie image
+    img_tag = soup.find("img")
+    if img_tag and "src" in img_tag.attrs:
+        image_url = BASE_URL + img_tag["src"]
+    
+    # Get all download links
+    for link in soup.find_all("a", href=True):
+        if "/download/" in link["href"]:
+            download_links.append(BASE_URL + link["href"])
+    
+    return {"image": image_url, "download_links": download_links}
+
+@app.route('/get_movie', methods=['GET'])
+def get_movie():
     movie_name = request.args.get('name')
     if not movie_name:
         return jsonify({"error": "Movie name required"}), 400
     
-    results = search_movie(movie_name)
-    if not results:
-        return jsonify({"error": "No movie found"}), 404
+    movie_page_url = search_movie(movie_name)
+    if not movie_page_url:
+        return jsonify({"error": "Movie not found"}), 404
     
-    best_match = process.extractOne(movie_name, [r["title"] for r in results])
-    if best_match and best_match[1] > 70:
-        selected_movie = next(r for r in results if r["title"] == best_match[0])
-        return jsonify(selected_movie)
-    else:
-        return jsonify({"error": "No exact match found, showing alternatives", "suggestions": results}), 200
+    movie_data = get_download_links(movie_page_url)
+    if not movie_data or not movie_data["download_links"]:
+        return jsonify({"error": "Download links not found"}), 404
+    
+    return jsonify(movie_data)
 
 if __name__ == '__main__':
     app.run(debug=True)
