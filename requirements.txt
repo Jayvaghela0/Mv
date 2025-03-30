@@ -1,6 +1,9 @@
-Flask
-flask-cors
-Pillow
-numpy
+flask  
+torch  
+torchvision  
+numpy  
+Pillow  
+basicsr  
+realesrgan  
+requests  
 gunicorn
-requests
