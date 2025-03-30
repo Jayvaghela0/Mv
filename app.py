@@ -1,47 +1,61 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS
-import subprocess
 import os
-import io
+import requests
+from flask import Flask, request, jsonify, send_file
+import torch
+import torchvision.transforms as transforms
 from PIL import Image
+import io
 import numpy as np
-
-def download_model():
-    if not os.path.exists("realesrgan-ncnn-vulkan"):  # Check if model is already downloaded
-        subprocess.run(["git", "clone", "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan.git"])
-        os.chdir("Real-ESRGAN-ncnn-vulkan")
-        subprocess.run(["chmod", "+x", "realesrgan-ncnn-vulkan"])
-        os.chdir("..")
-
-def enhance_image(image):
-    input_path = "input.jpg"
-    output_path = "output.jpg"
-    image.save(input_path, format="JPEG")
-    
-    subprocess.run(["./Real-ESRGAN-ncnn-vulkan/realesrgan-ncnn-vulkan", "-i", input_path, "-o", output_path, "-n", "realesrgan-x4plus-anime"], check=True)
-    
-    enhanced_img = Image.open(output_path)
-    return enhanced_img
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from realesrgan import RealESRGANer
 
 app = Flask(__name__)
-CORS(app, origins=["https://your-blogger-site.blogspot.com"])  # Replace with your Blogger domain
+
+# Auto-Download ESRGAN Model
+MODEL_PATH = "ESRGAN_x4.pth"
+MODEL_URL = "https://github.com/xinntao/ESRGAN/releases/download/v0.1.0/ESRGAN_x4.pth"
+
+if not os.path.exists(MODEL_PATH):
+    print("🔄 Downloading ESRGAN Model...")
+    response = requests.get(MODEL_URL, stream=True)
+    with open(MODEL_PATH, "wb") as f:
+        for chunk in response.iter_content(chunk_size=1024):
+            f.write(chunk)
+    print("✅ Model Downloaded Successfully!")
+
+# Load ESRGAN Model at Runtime
+def load_model():
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
+    upscaler = RealESRGANer(scale=4, model_path=MODEL_PATH, model=model, pre_pad=10, half=True)
+    return upscaler
+
+upscaler = load_model()
+
+def enhance_image(image):
+    img = image.convert("RGB")
+    img_np = np.array(img)
+    output, _ = upscaler.enhance(img_np, outscale=4)
+    enhanced_img = Image.fromarray(output)
+    return enhanced_img
+
+@app.route("/")
+def home():
+    return jsonify({"message": "Welcome to ESRGAN API!"})
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image provided"}), 400
-    
-    file = request.files['image']
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    file = request.files["image"]
     img = Image.open(file.stream)
-    
     enhanced_img = enhance_image(img)
-    
+
     img_io = io.BytesIO()
     enhanced_img.save(img_io, format='JPEG', quality=100)
     img_io.seek(0)
-    
+
     return send_file(img_io, mimetype='image/jpeg')
 
 if __name__ == "__main__":
-    download_model()
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000)
