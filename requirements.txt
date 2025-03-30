@@ -1,8 +1,5 @@
 Flask
 flask-cors
-cloudscraper
+requests
 beautifulsoup4
-fuzzywuzzy
-python-Levenshtein
 gunicorn
-
