@@ -13,7 +13,8 @@ app = Flask(__name__)
 
 # Auto-Download ESRGAN Model
 MODEL_PATH = "ESRGAN_x4.pth"
-MODEL_URL = "https://github.com/xinntao/ESRGAN/releases/download/v0.1.0/ESRGAN_x4.pth"
+MODEL_URL = "https://drive.google.com/uc?export=download&id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk
+"
 
 if not os.path.exists(MODEL_PATH):
     print("🔄 Downloading ESRGAN Model...")
