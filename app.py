@@ -10,6 +10,10 @@ CORS(app)
 scraper = cloudscraper.create_scraper()
 BASE_URL = "https://vegamovies.cr/?s="
 
+@app.route('/')
+def home():
+    return "Welcome to NV"
+    
 # Fetch movie search results
 def search_movie(movie_name):
     search_url = f"{BASE_URL}{movie_name.replace(' ', '+')}"
