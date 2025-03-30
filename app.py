@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app)
 
 scraper = cloudscraper.create_scraper()
-BASE_URL = "https://vegamovies.cr/?s="
+BASE_URL = "https://www.mp4moviez.family//?s="
 
 @app.route('/')
 def home():
