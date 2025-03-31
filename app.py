@@ -7,51 +7,92 @@ import numpy as np
 import io
 from PIL import Image
 from torchvision.transforms.functional import to_tensor, to_pil_image
+import hashlib
+import re
 
 app = Flask(__name__)
 CORS(app)
 
 # ESRGAN Model Configuration
 MODEL_PATH = "ESRGAN_x4.pth"
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"
+GDRIVE_URL = "https://drive.google.com/uc?export=download&id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"
+EXPECTED_SIZE = 67089157  # Expected file size in bytes (for verification)
 
+def get_confirm_token(response):
+    """Extract download confirmation token from Google Drive response"""
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 
-# Download ESRGAN model if not exists
-if not os.path.exists(MODEL_PATH):
-    print("🔄 Downloading ESRGAN Model...")
-    response = requests.get(MODEL_URL, stream=True)
+def download_file_from_gdrive():
+    """Handle Google Drive's virus scan warning and large file downloads"""
+    print("🔄 Downloading ESRGAN Model from Google Drive...")
+    
+    session = requests.Session()
+    response = session.get(GDRIVE_URL, stream=True)
+    token = get_confirm_token(response)
+    
+    if token:
+        params = {'id': '1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk', 'confirm': token}
+        response = session.get(GDRIVE_URL, params=params, stream=True)
+    
+    # Save content to file
     with open(MODEL_PATH, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024):
-            if chunk:
+        for chunk in response.iter_content(chunk_size=32768):
+            if chunk:  # filter out keep-alive new chunks
                 f.write(chunk)
-    print("✅ Model Downloaded Successfully!")
+    
+    # Verify download completed successfully
+    actual_size = os.path.getsize(MODEL_PATH)
+    if actual_size != EXPECTED_SIZE:
+        os.remove(MODEL_PATH)
+        raise ValueError(f"Download incomplete. Expected {EXPECTED_SIZE} bytes, got {actual_size} bytes")
+
+    print("✅ Model downloaded successfully!")
+
+# Download model if needed
+if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) != EXPECTED_SIZE:
+    download_file_from_gdrive()
 
 # Load ESRGAN Model
 def load_model():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = torch.jit.load(MODEL_PATH, map_location=device)
+    
+    try:
+        # First try loading as a traced model
+        model = torch.jit.load(MODEL_PATH, map_location=device)
+    except RuntimeError:
+        try:
+            # Fallback to state_dict loading
+            from torch import nn
+            model = nn.Module()
+            state_dict = torch.load(MODEL_PATH, map_location=device)
+            if 'params' in state_dict:
+                model.params = state_dict['params']
+            elif 'state_dict' in state_dict:
+                model.load_state_dict(state_dict['state_dict'])
+            else:
+                model.load_state_dict(state_dict)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model: {str(e)}")
+    
     model.eval()
     return model
 
 model = load_model()
 
 def enhance_image(image):
-    # Convert image to tensor
     img_tensor = to_tensor(image).unsqueeze(0)
     
-    # Move to GPU if available
     if torch.cuda.is_available():
         img_tensor = img_tensor.cuda()
     
-    # Perform super-resolution
     with torch.no_grad():
         output = model(img_tensor)
     
-    # Convert back to PIL Image
     output = output.squeeze(0).cpu().clamp(0, 1)
-    enhanced_img = to_pil_image(output)
-    
-    return enhanced_img
+    return to_pil_image(output)
 
 @app.route("/")
 def home():
@@ -76,4 +117,4 @@ def enhance():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, threaded=True)
