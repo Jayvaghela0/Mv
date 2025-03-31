@@ -5,3 +5,4 @@ torchvision==0.15.1
 numpy==1.23.5
 pillow==9.5.0
 requests==2.31.0
+gunicorn
