@@ -1,50 +1,31 @@
-import os
+import io
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import io
-from PIL import Image, ImageEnhance
-import cv2
+from PIL import Image, ImageFilter
 import numpy as np
 
 app = Flask(__name__)
 CORS(app)
 
-def enhance_image(image):
-    """Non-AI image enhancement using traditional CV techniques"""
-    img = image.convert("RGB")
+def apply_gentle_sharpening(image):
+    """Apply sharpening with softness to avoid artifacts"""
+    # Convert to numpy array for processing
+    img_array = np.array(image)
     
-    # Convert to OpenCV format
-    img_cv = np.array(img)
-    img_cv = img_cv[:, :, ::-1].copy()  # RGB to BGR
+    # 1. Gentle Unsharp Masking with controlled parameters
+    blurred = cv2.GaussianBlur(img_array, (0, 0), 2.0)
+    sharpened = cv2.addWeighted(img_array, 1.3, blurred, -0.3, 0)
     
-    # 1. Contrast Limited Adaptive Histogram Equalization (CLAHE)
-    lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    cl = clahe.apply(l)
-    limg = cv2.merge((cl,a,b))
-    enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+    # 2. Edge-preserving smoothing to reduce artifacts
+    sharpened = cv2.edgePreservingFilter(sharpened, flags=1, sigma_s=50, sigma_r=0.4)
     
-    # 2. Sharpening
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    enhanced = cv2.filter2D(enhanced, -1, kernel)
+    # 3. Convert back to PIL Image
+    result = Image.fromarray(sharpened)
     
-    # 3. Color correction
-    enhanced = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(enhanced)
+    # 4. Apply subtle softness
+    result = result.filter(ImageFilter.SMOOTH_MORE)
     
-    # 4. Pillow-based enhancements
-    enhancer = ImageEnhance.Contrast(img_pil)
-    img_pil = enhancer.enhance(1.2)
-    
-    enhancer = ImageEnhance.Sharpness(img_pil)
-    img_pil = enhancer.enhance(1.5)
-    
-    return img_pil
-
-@app.route("/")
-def home():
-    return jsonify({"message": "Welcome to Image Enhancement API!"})
+    return result
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
@@ -53,16 +34,21 @@ def enhance():
 
     try:
         file = request.files["image"]
-        img = Image.open(file.stream)
+        img = Image.open(file.stream).convert("RGB")
         
-        # Limit input size for free tier
-        if img.size[0] > 1024 or img.size[1] > 1024:
-            img.thumbnail((1024, 1024))
+        # Maintain original resolution
+        original_size = img.size
         
-        enhanced_img = enhance_image(img)
+        # Apply gentle sharpening
+        enhanced_img = apply_gentle_sharpening(img)
         
+        # Preserve original dimensions
+        if enhanced_img.size != original_size:
+            enhanced_img = enhanced_img.resize(original_size, Image.LANCZOS)
+        
+        # Save as high quality JPEG
         img_io = io.BytesIO()
-        enhanced_img.save(img_io, format='JPEG', quality=85)
+        enhanced_img.save(img_io, format='JPEG', quality=98, subsampling=0)
         img_io.seek(0)
         
         return send_file(img_io, mimetype='image/jpeg')
@@ -71,4 +57,4 @@ def enhance():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=5000)
