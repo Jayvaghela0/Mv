@@ -1,89 +1,52 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance
 import io
 
 app = Flask(__name__)
 CORS(app)
 
-def enhance_image(img, sharpness=2.0, smoothness=0.5, contrast=1.2, saturation=1.1):
-    # Convert to PIL Image
-    if isinstance(img, np.ndarray):
-        img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    
-    # Apply smoothness (bilateral filter)
-    if smoothness > 0:
-        img = img.filter(ImageFilter.GaussianBlur(radius=smoothness))
-    
-    # Apply sharpening (unsharp mask)
-    if sharpness > 1:
-        img = img.filter(ImageFilter.UnsharpMask(
-            radius=2,
-            percent=int(150 * sharpness),
-            threshold=3
-        ))
-    
-    # Adjust contrast and saturation
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(contrast)
-    
-    enhancer = ImageEnhance.Color(img)
-    img = enhancer.enhance(saturation)
-    
-    return img
+def upscale_image(image, scale=2):
+    width, height = image.size
+    new_width, new_height = width * scale, height * scale
+    return image.resize((new_width, new_height), Image.LANCZOS)
 
-def upscale_hd(img, scale=2.0):
-    # Convert to numpy array if PIL Image
-    if isinstance(img, Image.Image):
-        img = np.array(img)
+def enhance_image(image, sharpness=1.5, contrast=1.3, brightness=1.2, denoise=True):
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(sharpness)
     
-    # Smart upscaling with sharpening
-    height, width = img.shape[:2]
-    new_width = int(width * scale)
-    new_height = int(height * scale)
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(contrast)
     
-    # Use Lanczos interpolation for better quality
-    upscaled = cv2.resize(img, (new_width, new_height), 
-                         interpolation=cv2.INTER_LANCZOS4)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(brightness)
     
-    # Edge-preserving sharpening
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    upscaled = cv2.filter2D(upscaled, -1, kernel)
+    if denoise:
+        image = np.array(image)
+        image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+        image = Image.fromarray(image)
     
-    return upscaled
+    return image
 
 @app.route('/enhance', methods=['POST'])
 def enhance():
     if 'image' not in request.files:
-        return {"error": "No image provided"}, 400
+        return jsonify({'error': 'No image uploaded'}), 400
     
     file = request.files['image']
-    img = Image.open(file.stream)
+    image = Image.open(file.stream).convert("RGB")
     
-    # Get enhancement parameters
-    sharpness = float(request.form.get('sharpness', 1.5))
-    smoothness = float(request.form.get('smoothness', 0.3))
-    contrast = float(request.form.get('contrast', 1.2))
-    saturation = float(request.form.get('saturation', 1.1))
-    upscale = float(request.form.get('upscale', 1.5))
+    upscale_factor = int(request.form.get('scale', 2))
+    image = upscale_image(image, scale=upscale_factor)
+    image = enhance_image(image)
     
-    # Process image
-    enhanced = enhance_image(img, sharpness, smoothness, contrast, saturation)
-    
-    # Upscale if needed
-    if upscale > 1:
-        enhanced = upscale_hd(enhanced, upscale)
-    
-    # Convert to bytes
     img_io = io.BytesIO()
-    if isinstance(enhanced, np.ndarray):
-        enhanced = Image.fromarray(enhanced)
-    enhanced.save(img_io, 'JPEG', quality=95)
+    image.save(img_io, format='PNG')
     img_io.seek(0)
     
-    return send_file(img_io, mimetype='image/jpeg')
+    return send_file(img_io, mimetype='image/png')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
