@@ -1,73 +1,61 @@
-import os
-import io
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from PIL import Image
 import cv2
 import numpy as np
+from PIL import Image, ImageEnhance
+import os
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for API endpoints
+CORS(app)  # CORS Enable for Frontend Access
 
-def professional_sharpening(image):
-    """
-    Advanced image sharpening without artifacts
-    Returns: PIL Image
-    """
-    # Convert to OpenCV format
-    img_np = np.array(image.convert("RGB"))
-    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-    
-    # 1. Edge-preserving smoothing
-    smoothed = cv2.bilateralFilter(img_cv, d=9, sigmaColor=75, sigmaSpace=75)
-    
-    # 2. Custom soft-sharpening kernel
-    kernel = np.array([
-        [ 0,  -0.15,  0 ],
-        [-0.15, 1.6, -0.15],
-        [ 0,  -0.15,  0 ]
-    ])
-    sharpened = cv2.filter2D(smoothed, -1, kernel)
-    
-    # 3. Smart blending (85% smoothed + 15% sharpened)
-    result = cv2.addWeighted(smoothed, 0.85, sharpened, 0.15, 0)
-    
-    # Convert back to PIL Image
-    result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(result_rgb)
+UPLOAD_FOLDER = "uploads"
+OUTPUT_FOLDER = "output"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+# Image Processing Functions
+def upscale_image(image):
+    return cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
+
+def sharpen_image(image):
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    return cv2.filter2D(image, -1, kernel)
+
+def denoise_image(image):
+    return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+
+def deblur_image(image):
+    kernel = np.array([[1, 1, 1], [1, -7, 1], [1, 1, 1]])
+    return cv2.filter2D(image, -1, kernel)
 
 @app.route('/enhance', methods=['POST'])
 def enhance_image():
-    """API endpoint for image enhancement"""
     if 'image' not in request.files:
-        return jsonify({'error': 'No image provided'}), 400
+        return jsonify({"error": "No image uploaded"}), 400
+
+    file = request.files['image']
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+
+    image = cv2.imread(filepath)
     
-    try:
-        # Read input image
-        file = request.files['image']
-        img = Image.open(file.stream)
-        
-        # Limit size for processing
-        if max(img.size) > 1600:
-            img.thumbnail((1600, 1600))
-        
-        # Apply professional sharpening
-        enhanced_img = professional_sharpening(img)
-        
-        # Prepare response
-        img_io = io.BytesIO()
-        enhanced_img.save(img_io, 'JPEG', quality=92)
-        img_io.seek(0)
-        
-        return send_file(
-            img_io,
-            mimetype='image/jpeg',
-            as_attachment=True,
-            download_name='enhanced_image.jpg'
-        )
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    if image is None:
+        return jsonify({"error": "Invalid image"}), 400
+
+    enhanced = upscale_image(image)  # Upscale 2x
+    enhanced = sharpen_image(enhanced)  # Sharpen
+    enhanced = denoise_image(enhanced)  # Denoise
+    enhanced = deblur_image(enhanced)  # Deblur
+
+    output_path = os.path.join(OUTPUT_FOLDER, "enhanced_" + file.filename)
+    cv2.imwrite(output_path, enhanced)
+
+    return jsonify({"preview_url": f"/download/{'enhanced_' + file.filename}"})
+
+@app.route('/download/<filename>', methods=['GET'])
+def download_file(filename):
+    path = os.path.join(OUTPUT_FOLDER, filename)
+    return send_file(path, as_attachment=True)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(debug=True)
