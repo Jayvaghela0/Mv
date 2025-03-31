@@ -1,7 +1,7 @@
 import io
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from PIL import Image, ImageFilter
+from PIL import Image
 import cv2
 import numpy as np
 import os
@@ -9,29 +9,25 @@ import os
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all domains
 
-def sharpen_with_softness(image):
-    """Apply sharpening with softness effect only"""
+def apply_sharpening(image):
+    """Apply sharpening only without any softness"""
     # Convert to numpy array
     img_array = np.array(image)
     
     # Convert RGB to BGR for OpenCV
     img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # 1. Sharpening kernel
-    kernel = np.array([[0, -0.5, 0], 
-                      [-0.5, 3, -0.5], 
-                      [0, -0.5, 0]])
-    sharpened = cv2.filter2D(img_array, -1, kernel)
+    # Sharpening kernel - stronger center value for more pronounced sharpening
+    kernel = np.array([[0, -1, 0], 
+                      [-1, 5, -1], 
+                      [0, -1, 0]])
     
-    # 2. Edge-preserving smoothing for softness
-    sharpened = cv2.edgePreservingFilter(sharpened, flags=1, sigma_s=30, sigma_r=0.5)
+    # Apply sharpening
+    sharpened = cv2.filter2D(img_array, -1, kernel)
     
     # Convert back to RGB
     sharpened = cv2.cvtColor(sharpened, cv2.COLOR_BGR2RGB)
-    result = Image.fromarray(sharpened)
-    
-    # 3. Final subtle softness touch
-    return result.filter(ImageFilter.SMOOTH)
+    return Image.fromarray(sharpened)
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
@@ -44,12 +40,12 @@ def enhance():
         # Open and convert image
         img = Image.open(file.stream).convert("RGB")
         
-        # Apply sharpening with softness
-        enhanced_img = sharpen_with_softness(img)
+        # Apply sharpening only
+        enhanced_img = apply_sharpening(img)
         
         # Create in-memory file
         img_io = io.BytesIO()
-        enhanced_img.save(img_io, format='JPEG', quality=95)
+        enhanced_img.save(img_io, format='JPEG', quality=100)  # Maximum quality
         img_io.seek(0)
         
         # Return the enhanced image
@@ -57,7 +53,7 @@ def enhance():
             img_io,
             mimetype='image/jpeg',
             as_attachment=False,
-            download_name='enhanced.jpg'
+            download_name='sharpened.jpg'
         )
     
     except Exception as e:
