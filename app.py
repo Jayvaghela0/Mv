@@ -3,44 +3,49 @@ import io
 import numpy as np
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from PIL import Image, ImageEnhance
+from PIL import Image
 import cv2
 
 app = Flask(__name__)
 CORS(app)
 
-def natural_enhancement(image):
-    """Balanced enhancement without over-sharpening"""
-    img = image.convert("RGB")
-    img_np = np.array(img)
+def apply_esrgan_style_enhancement(image):
+    """Balanced enhancement mimicking ESRGAN results without AI"""
+    # Convert to OpenCV format (BGR)
+    img_np = np.array(image.convert("RGB"))
     img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
     
-    # 1. Gentle Contrast Enhancement
+    # 1. LAB Color Space Processing for Natural Enhancement
     lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8,8))
+    
+    # Contrast Limited Adaptive Histogram Equalization (CLAHE)
+    clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8,8))
     l = clahe.apply(l)
-    lab = cv2.merge((l,a,b))
+    
+    # Slight color boost (5-10%)
+    a = cv2.multiply(a, 1.05)
+    b = cv2.multiply(b, 1.05)
+    
+    lab = cv2.merge((l, a, b))
     enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
     
-    # 2. Subtle Sharpening (Reduced intensity)
-    kernel = np.array([[0, -0.5, 0], 
-                      [-0.5, 3, -0.5], 
-                      [0, -0.5, 0]])
+    # 2. Smart Sharpening (ESRGAN-style)
+    kernel = np.array([[0, -0.2, 0],
+                      [-0.2, 1.8, -0.2],
+                      [0, -0.2, 0]])
     sharpened = cv2.filter2D(enhanced, -1, kernel)
     
-    # 3. Color Preservation
-    sharpened = cv2.addWeighted(enhanced, 0.7, sharpened, 0.3, 0)
+    # 3. Final Mixing (70% enhanced, 30% sharpened)
+    result = cv2.addWeighted(enhanced, 0.7, sharpened, 0.3, 0)
     
-    # Convert back to PIL
-    result = cv2.cvtColor(sharpened, cv2.COLOR_BGR2RGB)
-    final_image = Image.fromarray(result)
-    
-    # Mild Sharpening
-    enhancer = ImageEnhance.Sharpness(final_image)
-    final_image = enhancer.enhance(1.3)  # Reduced from 2.0 to 1.3
-    
-    return final_image
+    # Convert back to PIL Image
+    result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(result_rgb)
+
+@app.route("/")
+def home():
+    return jsonify({"message": "Welcome to ESRGAN-style Image Enhancement API (Lightweight)"})
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
@@ -48,15 +53,18 @@ def enhance():
         return jsonify({"error": "No image uploaded"}), 400
 
     try:
+        # Read and validate image
         file = request.files["image"]
         img = Image.open(file.stream)
         
-        # Size limit
+        # Limit input size for Render free tier
         if max(img.size) > 1600:
             img.thumbnail((1600, 1600))
         
-        enhanced_img = natural_enhancement(img)
+        # Apply enhancement
+        enhanced_img = apply_esrgan_style_enhancement(img)
         
+        # Prepare response
         img_io = io.BytesIO()
         enhanced_img.save(img_io, format='JPEG', quality=90)
         img_io.seek(0)
