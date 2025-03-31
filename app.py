@@ -8,6 +8,10 @@ import io
 app = Flask(__name__)
 CORS(app)
 
+@app.route('/')
+def home():
+    return jsonify({'message': 'Image Upscaler API is running'}), 200
+
 def upscale_image(image, scale=2):
     width, height = image.size
     new_width, new_height = width * scale, height * scale
