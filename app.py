@@ -1,50 +1,54 @@
 import os
+import io
+import numpy as np
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import io
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter
 import cv2
-import numpy as np
 
 app = Flask(__name__)
 CORS(app)
 
-def enhance_image(image):
-    """Non-AI image enhancement using traditional CV techniques"""
+def esrgan_style_sharpening(image):
+    """Advanced sharpening mimicking ESRGAN results"""
     img = image.convert("RGB")
     
-    # Convert to OpenCV format
-    img_cv = np.array(img)
-    img_cv = img_cv[:, :, ::-1].copy()  # RGB to BGR
+    # Convert to numpy array (OpenCV format)
+    img_np = np.array(img)
+    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
     
-    # 1. Contrast Limited Adaptive Histogram Equalization (CLAHE)
-    lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
+    # 1. High Pass Filter for Edge Enhancement
+    kernel_size = 5
+    gaussian = cv2.GaussianBlur(img_cv, (kernel_size, kernel_size), 0)
+    high_pass = cv2.addWeighted(img_cv, 1.5, gaussian, -0.5, 0)
+    
+    # 2. Unsharp Masking (Advanced Version)
+    blurred = cv2.GaussianBlur(high_pass, (0, 0), 3)
+    unsharp_image = cv2.addWeighted(high_pass, 1.7, blurred, -0.7, 0)
+    
+    # 3. Detail Enhancement
+    lab = cv2.cvtColor(unsharp_image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     cl = clahe.apply(l)
     limg = cv2.merge((cl,a,b))
     enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
     
-    # 2. Sharpening
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    enhanced = cv2.filter2D(enhanced, -1, kernel)
+    # 4. Final Sharpening Kernel
+    kernel = np.array([[-1,-1,-1], 
+                      [-1, 9,-1],
+                      [-1,-1,-1]])
+    sharpened = cv2.filter2D(enhanced, -1, kernel)
     
-    # 3. Color correction
-    enhanced = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(enhanced)
+    # Convert back to PIL Image
+    sharpened_rgb = cv2.cvtColor(sharpened, cv2.COLOR_BGR2RGB)
+    final_image = Image.fromarray(sharpened_rgb)
     
-    # 4. Pillow-based enhancements
-    enhancer = ImageEnhance.Contrast(img_pil)
-    img_pil = enhancer.enhance(1.2)
+    # Additional Pillow-based sharpening
+    enhancer = ImageEnhance.Sharpness(final_image)
+    final_image = enhancer.enhance(2.0)  # Aggressive sharpening
     
-    enhancer = ImageEnhance.Sharpness(img_pil)
-    img_pil = enhancer.enhance(1.5)
-    
-    return img_pil
-
-@app.route("/")
-def home():
-    return jsonify({"message": "Welcome to Image Enhancement API!"})
+    return final_image
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
@@ -55,14 +59,14 @@ def enhance():
         file = request.files["image"]
         img = Image.open(file.stream)
         
-        # Limit input size for free tier
-        if img.size[0] > 1024 or img.size[1] > 1024:
-            img.thumbnail((1024, 1024))
+        # Limit input size for performance
+        if max(img.size) > 2048:
+            img.thumbnail((2048, 2048))
         
-        enhanced_img = enhance_image(img)
+        enhanced_img = esrgan_style_sharpening(img)
         
         img_io = io.BytesIO()
-        enhanced_img.save(img_io, format='JPEG', quality=100)
+        enhanced_img.save(img_io, format='JPEG', quality=92)
         img_io.seek(0)
         
         return send_file(img_io, mimetype='image/jpeg')
