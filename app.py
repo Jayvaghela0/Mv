@@ -60,8 +60,20 @@ def enhance_image():
         upscale = float(request.form.get('upscale', 1.0))
         
         # Get image file
+        if 'image' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No image file provided'}), 400
+            
         file = request.files['image']
-        img = Image.open(file.stream)
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        # Open and convert image
+        img_stream = file.stream
+        img = Image.open(img_stream)
+        
+        # Convert to RGB if necessary
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
         
         # Apply enhancements
         enhanced_img = apply_enhancements(img, brightness, contrast, sharpness, saturation)
@@ -74,22 +86,27 @@ def enhance_image():
         img_io = BytesIO()
         if isinstance(enhanced_img, np.ndarray):
             enhanced_img = Image.fromarray(enhanced_img)
+        
+        # Save as JPEG with high quality
         enhanced_img.save(img_io, 'JPEG', quality=95)
         img_io.seek(0)
         
-        # Return as base64
-        img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
+        # Create response
+        response = send_file(
+            img_io,
+            mimetype='image/jpeg',
+            as_attachment=False
+        )
         
-        return jsonify({
-            'status': 'success',
-            'image': f'data:image/jpeg;base64,{img_base64}'
-        })
+        # Add CORS headers
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
     
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
-        }), 400
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
