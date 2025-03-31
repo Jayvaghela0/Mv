@@ -13,7 +13,8 @@ CORS(app)
 
 # ESRGAN Model Configuration
 MODEL_PATH = "ESRGAN_x4.pth"
-MODEL_URL = "https://github.com/leftthomas/ESRGAN/releases/download/v1.0/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth"
+MODEL_URL = "https://drive.google.com/uc?export=download&id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"
+
 
 # Download ESRGAN model if not exists
 if not os.path.exists(MODEL_PATH):
