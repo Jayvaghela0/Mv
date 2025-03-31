@@ -6,37 +6,50 @@ import torch
 import numpy as np
 import io
 from PIL import Image
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
+from torchvision.transforms.functional import to_tensor, to_pil_image
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# Auto-Download ESRGAN Model
+# ESRGAN Model Configuration
 MODEL_PATH = "ESRGAN_x4.pth"
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1lZVx0Pw2yTnS5t2-vdlcQ03AjrEpXFgk"
+MODEL_URL = "https://github.com/leftthomas/ESRGAN/releases/download/v1.0/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth"
 
+# Download ESRGAN model if not exists
 if not os.path.exists(MODEL_PATH):
     print("🔄 Downloading ESRGAN Model...")
     response = requests.get(MODEL_URL, stream=True)
     with open(MODEL_PATH, "wb") as f:
         for chunk in response.iter_content(chunk_size=1024):
-            f.write(chunk)
+            if chunk:
+                f.write(chunk)
     print("✅ Model Downloaded Successfully!")
 
-# Load ESRGAN Model at Runtime
+# Load ESRGAN Model
 def load_model():
-    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-    upscaler = RealESRGANer(scale=4, model_path=MODEL_PATH, model=model, pre_pad=10, half=True)
-    return upscaler
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = torch.jit.load(MODEL_PATH, map_location=device)
+    model.eval()
+    return model
 
-upscaler = load_model()
+model = load_model()
 
 def enhance_image(image):
-    img = image.convert("RGB")
-    img_np = np.array(img)
-    output, _ = upscaler.enhance(img_np, outscale=4)
-    enhanced_img = Image.fromarray(output)
+    # Convert image to tensor
+    img_tensor = to_tensor(image).unsqueeze(0)
+    
+    # Move to GPU if available
+    if torch.cuda.is_available():
+        img_tensor = img_tensor.cuda()
+    
+    # Perform super-resolution
+    with torch.no_grad():
+        output = model(img_tensor)
+    
+    # Convert back to PIL Image
+    output = output.squeeze(0).cpu().clamp(0, 1)
+    enhanced_img = to_pil_image(output)
+    
     return enhanced_img
 
 @app.route("/")
@@ -49,14 +62,17 @@ def enhance():
         return jsonify({"error": "No image uploaded"}), 400
 
     file = request.files["image"]
-    img = Image.open(file.stream)
-    enhanced_img = enhance_image(img)
+    try:
+        img = Image.open(file.stream).convert("RGB")
+        enhanced_img = enhance_image(img)
 
-    img_io = io.BytesIO()
-    enhanced_img.save(img_io, format='JPEG', quality=100)
-    img_io.seek(0)
+        img_io = io.BytesIO()
+        enhanced_img.save(img_io, format='JPEG', quality=95)
+        img_io.seek(0)
 
-    return send_file(img_io, mimetype='image/jpeg')
+        return send_file(img_io, mimetype='image/jpeg')
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
