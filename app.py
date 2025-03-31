@@ -1,66 +1,95 @@
-import io
-import base64
-from flask import Flask, request, jsonify
+# app.py
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from PIL import Image
 import cv2
 import numpy as np
+from io import BytesIO
+from PIL import Image, ImageEnhance
+import base64
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for all routes
 
-def enhance_image(img):
-    """Original look maintain रखते हुए हल्का sharpen और softness add करना"""
-    img_np = np.array(img.convert("RGB"))
-    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+def apply_enhancements(image, brightness=1.0, contrast=1.0, sharpness=1.0, saturation=1.0):
+    """Apply traditional image enhancements"""
+    # Convert to PIL Image if it's a numpy array
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     
-    # हल्का soft effect (Gaussian Blur)
-    soft = cv2.GaussianBlur(img_cv, (5,5), 1.5)
+    # Apply enhancements
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(brightness)
     
-    # हल्का sharpening kernel (sharpness कम किया)
-    kernel = np.array([[0,-0.1,0], [-0.1,1.5,-0.1], [0,-0.1,0]])
-    sharpened = cv2.filter2D(soft, -1, kernel)
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(contrast)
     
-    # Smooth blending (original look बनाए रखने के लिए)
-    result = cv2.addWeighted(soft, 0.4, sharpened, 0.6, 0)
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(sharpness)
+    
+    enhancer = ImageEnhance.Color(image)
+    image = enhancer.enhance(saturation)
+    
+    return image
 
-    return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+def upscale_image(image, scale=2.0):
+    """Upscale image using traditional interpolation"""
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+    
+    height, width = image.shape[:2]
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+    
+    # Using cv2.INTER_CUBIC for better quality than bilinear
+    upscaled = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+    
+    # Apply slight sharpening to compensate for interpolation blur
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    upscaled = cv2.filter2D(upscaled, -1, kernel)
+    
+    return upscaled
 
 @app.route('/enhance', methods=['POST'])
-def process_image():
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image uploaded'}), 400
-    
+def enhance_image():
     try:
+        # Get parameters from request
+        brightness = float(request.form.get('brightness', 1.0))
+        contrast = float(request.form.get('contrast', 1.0))
+        sharpness = float(request.form.get('sharpness', 1.0))
+        saturation = float(request.form.get('saturation', 1.0))
+        upscale = float(request.form.get('upscale', 1.0))
+        
+        # Get image file
         file = request.files['image']
         img = Image.open(file.stream)
         
-        # अगर image बहुत बड़ी है तो resize करें
-        if max(img.size) > 1600:
-            img.thumbnail((1600, 1600))
-            
-        enhanced = enhance_image(img)
+        # Apply enhancements
+        enhanced_img = apply_enhancements(img, brightness, contrast, sharpness, saturation)
         
-        # Create download link
-        img_io = io.BytesIO()
-        enhanced.save(img_io, 'JPEG', quality=95)
+        # Upscale if needed
+        if upscale > 1.0:
+            enhanced_img = upscale_image(enhanced_img, upscale)
+        
+        # Convert to bytes
+        img_io = BytesIO()
+        if isinstance(enhanced_img, np.ndarray):
+            enhanced_img = Image.fromarray(enhanced_img)
+        enhanced_img.save(img_io, 'JPEG', quality=95)
         img_io.seek(0)
-        download_link = f"data:image/jpeg;base64,{base64.b64encode(img_io.getvalue()).decode()}"
         
-        # Create preview
-        preview_io = io.BytesIO()
-        enhanced.save(preview_io, 'JPEG', quality=75)
-        preview_io.seek(0)
-        preview_img = f"data:image/jpeg;base64,{base64.b64encode(preview_io.getvalue()).decode()}"
+        # Return as base64
+        img_base64 = base64.b64encode(img_io.getvalue()).decode('utf-8')
         
         return jsonify({
-            'preview': preview_img,
-            'download': download_link,
-            'filename': file.filename
+            'status': 'success',
+            'image': f'data:image/jpeg;base64,{img_base64}'
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
